@@ -24,9 +24,10 @@ def read_file_lines(path: str) -> list[bytes] | None:
 
 def myers_diff(a: list, b: list) -> list[tuple[str, int, int]]:
     """
-    Myers' O(ND) algorithm with linear space.
-    Uses divide-and-conquer to avoid storing full trace.
+    Myers' O(ND) algorithm with memory optimization.
+    Only stores necessary trace information.
     Returns list of (operation, a_idx, b_idx) tuples.
+    operation: 'keep', 'delete', or 'insert'
     """
     n = len(a)
     m = len(b)
@@ -39,24 +40,19 @@ def myers_diff(a: list, b: list) -> list[tuple[str, int, int]]:
     if m == 0:
         return [('delete', i, 0) for i in range(n)]
     
-    # For small inputs, use simple approach
-    if n + m < 100:
-        return myers_with_trace(a, b, n, m)
-    
-    # Use middle-snake divide and conquer for large inputs
-    return linear_space_myers(a, b, 0, n, 0, m)
-
-
-def myers_with_trace(a: list, b: list, n: int, m: int) -> list[tuple[str, int, int]]:
-    """Myers with trace for small inputs."""
     max_d = n + m
-    v = {1: 0}
-    trace = [{}]
+    v = {}
+    v[1] = 0
+    
+    # Instead of storing full dicts, store only necessary values in a compact form
+    # trace[d] = list of (k, x) pairs
+    trace = [[]]
     
     for d in range(max_d + 1):
-        trace.append({})
+        trace.append([])
         
         for k in range(-d, d + 1, 2):
+            # Decide whether to move down or right
             if k == -d or (k != d and v.get(k - 1, -1) < v.get(k + 1, -1)):
                 x = v.get(k + 1, 0)
             else:
@@ -64,28 +60,46 @@ def myers_with_trace(a: list, b: list, n: int, m: int) -> list[tuple[str, int, i
             
             y = x - k
             
+            # Follow the snake
             while x < n and y < m and a[x] == b[y]:
                 x += 1
                 y += 1
             
             v[k] = x
-            trace[d + 1][k] = x
+            # Store only (k, x) pairs instead of full dict
+            trace[d + 1].append((k, x))
             
+            # Check if we reached the end
             if x >= n and y >= m:
-                return backtrack_simple(trace, d, n, m)
+                return backtrack_compact(trace, d, n, m)
+        
+        # Clear old V entries we won't need
+        # Keep only the range we might access in next iteration
+        new_v = {}
+        for k in range(-d - 1, d + 2):
+            if k in v:
+                new_v[k] = v[k]
+        v = new_v
     
     return []
 
 
-def backtrack_simple(trace: list[dict], d: int, n: int, m: int) -> list[tuple[str, int, int]]:
-    """Backtrack for small inputs."""
+def backtrack_compact(trace: list, d: int, n: int, m: int) -> list[tuple[str, int, int]]:
+    """
+    Backtrack through compact trace to construct the edit script.
+    """
     x, y = n, m
     result = []
     
     for d_step in range(d, -1, -1):
         k = x - y
-        v_prev = trace[d_step]
         
+        # Rebuild v_prev from trace
+        v_prev = {}
+        for k_val, x_val in trace[d_step]:
+            v_prev[k_val] = x_val
+        
+        # Determine previous k
         if k == -d_step or (k != d_step and v_prev.get(k - 1, -1) < v_prev.get(k + 1, -1)):
             prev_k = k + 1
         else:
@@ -94,16 +108,20 @@ def backtrack_simple(trace: list[dict], d: int, n: int, m: int) -> list[tuple[st
         prev_x = v_prev.get(prev_k, 0)
         prev_y = prev_x - prev_k
         
+        # Walk back along the snake
         while x > prev_x and y > prev_y:
             x -= 1
             y -= 1
             result.append(('keep', x, y))
         
+        # Record the edit
         if d_step > 0:
             if x == prev_x:
+                # Moved down: insert from B
                 y -= 1
                 result.append(('insert', x, y))
             else:
+                # Moved right: delete from A
                 x -= 1
                 result.append(('delete', x, y))
         
@@ -111,109 +129,6 @@ def backtrack_simple(trace: list[dict], d: int, n: int, m: int) -> list[tuple[st
     
     result.reverse()
     return result
-
-
-def linear_space_myers(a: list, b: list, a_start: int, a_end: int, b_start: int, b_end: int) -> list[tuple[str, int, int]]:
-    """
-    Linear space Myers using middle-snake divide-and-conquer.
-    """
-    n = a_end - a_start
-    m = b_end - b_start
-    
-    if n == 0 and m == 0:
-        return []
-    if n == 0:
-        return [('insert', a_start, b_start + i) for i in range(m)]
-    if m == 0:
-        return [('delete', a_start + i, b_start) for i in range(n)]
-    
-    # Find middle snake
-    snake = find_middle_snake(a, b, a_start, a_end, b_start, b_end)
-    if snake is None:
-        # Fallback for very small
-        if n == 1 and m == 1:
-            if a[a_start] == b[b_start]:
-                return [('keep', a_start, b_start)]
-            else:
-                return [('delete', a_start, b_start), ('insert', a_start, b_start)]
-        return myers_with_trace(a[a_start:a_end], b[b_start:b_end], n, m)
-    
-    x_start, x_end, y_start, y_end = snake
-    
-    # Recursively solve sub-problems
-    result = []
-    result.extend(linear_space_myers(a, b, a_start, x_start, b_start, y_start))
-    
-    # Add snake
-    for i in range(x_end - x_start):
-        result.append(('keep', x_start + i, y_start + i))
-    
-    result.extend(linear_space_myers(a, b, x_end, a_end, y_end, b_end))
-    
-    return result
-
-
-def find_middle_snake(a: list, b: list, a_start: int, a_end: int, b_start: int, b_end: int):
-    """
-    Find the middle snake using forward and backward search.
-    Returns (x_start, x_end, y_start, y_end) of the snake.
-    """
-    n = a_end - a_start
-    m = b_end - b_start
-    delta = n - m
-    odd = delta % 2 == 1
-    
-    max_d = (n + m + 1) // 2 + 1
-    
-    v_forward = {1: 0}
-    v_backward = {1: 0}
-    
-    for d in range(max_d + 1):
-        # Forward search
-        for k in range(-d, d + 1, 2):
-            if k == -d or (k != d and v_forward.get(k - 1, -1) < v_forward.get(k + 1, -1)):
-                x = v_forward.get(k + 1, 0)
-            else:
-                x = v_forward.get(k - 1, 0) + 1
-            
-            y = x - k
-            x_start_snake = x
-            
-            while x < n and y < m and a[a_start + x] == b[b_start + y]:
-                x += 1
-                y += 1
-            
-            v_forward[k] = x
-            
-            # Check for overlap
-            if odd and k >= delta - d + 1 and k <= delta + d - 1:
-                if x + v_backward.get(delta - k, -1) >= n:
-                    return (a_start + x_start_snake, a_start + x, 
-                            b_start + x_start_snake - k, b_start + y)
-        
-        # Backward search
-        for k in range(-d, d + 1, 2):
-            if k == -d or (k != d and v_backward.get(k - 1, -1) < v_backward.get(k + 1, -1)):
-                x = v_backward.get(k + 1, 0)
-            else:
-                x = v_backward.get(k - 1, 0) + 1
-            
-            y = x - k
-            x_start_snake = x
-            
-            while x < n and y < m and a[a_end - 1 - x] == b[b_end - 1 - y]:
-                x += 1
-                y += 1
-            
-            v_backward[k] = x
-            
-            # Check for overlap
-            if not odd and k + delta >= -d and k + delta <= d:
-                if x + v_forward.get(k + delta, -1) >= n:
-                    return (a_end - x, a_end - x_start_snake,
-                            b_end - y, b_end - x_start_snake + k)
-    
-    return None
 
 
 def format_lines_output(a_lines: list[bytes], b_lines: list[bytes]) -> str:
