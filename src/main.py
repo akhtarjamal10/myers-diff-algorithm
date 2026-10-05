@@ -24,66 +24,75 @@ def read_file_lines(path: str) -> list[bytes] | None:
 
 def myers_diff(a: list, b: list) -> list[tuple[str, int, int]]:
     """
-    Myers' O(ND) algorithm to find shortest edit script.
+    Myers' O(ND) algorithm with memory optimization.
     Returns list of (operation, a_idx, b_idx) tuples.
     operation: 'keep', 'delete', or 'insert'
     """
     n = len(a)
     m = len(b)
+    
+    # Handle edge cases
+    if n == 0 and m == 0:
+        return []
+    if n == 0:
+        return [('insert', 0, i) for i in range(m)]
+    if m == 0:
+        return [('delete', i, 0) for i in range(n)]
+    
     max_d = n + m
-    
-    # V array stores the furthest reaching x for each k diagonal
     v = {1: 0}
-    trace = []
     
-    # Find the shortest edit distance
+    # Store only k values for each d, not full V arrays
+    trace = [{}]
+    
     for d in range(max_d + 1):
-        trace.append(v.copy())
+        # Store only the k values we'll need for backtracking
+        trace.append({})
         
         for k in range(-d, d + 1, 2):
-            # Move down or right?
+            # Decide whether to move down or right
             if k == -d or (k != d and v.get(k - 1, -1) < v.get(k + 1, -1)):
-                x = v.get(k + 1, 0)  # Move down (insert from B)
+                x = v.get(k + 1, 0)
             else:
-                x = v.get(k - 1, 0) + 1  # Move right (delete from A)
+                x = v.get(k - 1, 0) + 1
             
             y = x - k
             
-            # Follow diagonal (snake)
+            # Follow the snake
             while x < n and y < m and a[x] == b[y]:
                 x += 1
                 y += 1
             
             v[k] = x
+            trace[d + 1][k] = x
             
-            # Found the path to end?
+            # Check if we reached the end
             if x >= n and y >= m:
-                return backtrack(a, b, trace, d)
+                return backtrack(a, b, trace, d, n, m)
     
     return []
 
 
-def backtrack(a: list, b: list, trace: list[dict], d: int) -> list[tuple[str, int, int]]:
+def backtrack(a: list, b: list, trace: list[dict], d: int, n: int, m: int) -> list[tuple[str, int, int]]:
     """
-    Backtrack through the V arrays to construct the edit script.
+    Backtrack through minimal trace to construct the edit script.
     """
-    n = len(a)
-    m = len(b)
     x, y = n, m
-    
     result = []
     
     for d_step in range(d, -1, -1):
-        v = trace[d_step]
         k = x - y
         
         # Determine previous k
-        if k == -d_step or (k != d_step and v.get(k - 1, -1) < v.get(k + 1, -1)):
+        v_curr = trace[d_step + 1]
+        v_prev = trace[d_step]
+        
+        if k == -d_step or (k != d_step and v_prev.get(k - 1, -1) < v_prev.get(k + 1, -1)):
             prev_k = k + 1
         else:
             prev_k = k - 1
         
-        prev_x = v.get(prev_k, 0)
+        prev_x = v_prev.get(prev_k, 0)
         prev_y = prev_x - prev_k
         
         # Walk back along the snake
